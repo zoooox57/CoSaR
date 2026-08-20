@@ -73,7 +73,7 @@ def multiclass_noisify(y, P, random_state=0):
         i = y[idx]
         # draw a vector with only an 1
         flipped = flipper.multinomial(1, P[i, :], 1)[0]
-        new_y[idx] = np.where(flipped == 1)[0]
+        new_y[idx] = np.flatnonzero(flipped)[0]
 
     return new_y
 
@@ -157,15 +157,13 @@ class CIFAR10_train(torchvision.datasets.CIFAR10):
             img_aug = img.copy()
 
         if self.transform is not None:
-            img_weak1 = self.transform(img)
-            img_weak2 = self.transform(img)
+            img_weak = self.transform(img)
         else:
-            img_weak1 = img.copy()
-            img_weak2 = img.copy()
+            img_weak = img.copy()
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        return img_weak1, img_weak2, img_aug, target, target_gt, index
+        return img_weak, img_aug, target, target_gt, index
 
     def __len__(self):
         return len(self.train_data)
@@ -215,4 +213,3 @@ class CIFAR10_val(torchvision.datasets.CIFAR10):
 if __name__ == '__main__':
     set = get_cifar10('cifar10d', noise_type='', noise_ratio='', train=False)
     set2 = get_cifar10('cifar10d', noise_type='instance', noise_ratio=0.4, train=True)
-

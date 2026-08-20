@@ -38,12 +38,14 @@ class CNN(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.classifier = nn.Linear(1024, 10, bias=True)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Linear(16, n_outputs, bias=True)
 
     def forward(self, x):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
+        x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
         return x
@@ -51,5 +53,5 @@ class CNN(nn.Module):
 
 if __name__ == '__main__':
     net = CNN(3, 10)
-    x = torch.zeros(1, 3, 64, 64)
+    x = torch.zeros(1, 3, 32, 32)
     print(net(x))

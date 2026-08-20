@@ -49,7 +49,7 @@ def multiclass_noisify(y, P, random_state=0):
         i = y[idx]
         # draw a vector with only an 1
         flipped = flipper.multinomial(1, P[i, :], 1)[0]
-        new_y[idx] = np.where(flipped == 1)[0]
+        new_y[idx] = np.flatnonzero(flipped)[0]
 
     return new_y
 

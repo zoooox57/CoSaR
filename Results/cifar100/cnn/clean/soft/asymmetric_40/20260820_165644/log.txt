@@ -1,0 +1,1 @@
+epoch:   1 | train loss: 4.5213 | train accuracy:  3.028 | test loss: 4.3040 | test accuracy:  5.100 | best accuracy:  5.100 @ epoch: 001 |net2 loss: 4.3895 | net2 acc:  3.840 | best accuracy:  3.840 @ epoch: 001 |epoch runtime: 380.00 sec | selected clean rate:  0.602 | clean num: 30082 | selected num: 50000,

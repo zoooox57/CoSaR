@@ -1,0 +1,4 @@
+Result Path: Results/cifar100/cnn/clean/soft/asymmetric_40/20260820_165644
+Categories: 100, Training Samples: 50000, Valid Samples: 10000, Model: cnn
+Noise Type: asymmetric, Noise Ratio: 0.4
+Optimizer: Adam

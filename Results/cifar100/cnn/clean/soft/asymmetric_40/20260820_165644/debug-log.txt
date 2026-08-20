@@ -1,0 +1,4 @@
+Epoch:[  1/  1]  Iter:[ 100/ 391]  Train Accuracy:[  1.55]  Loss:[4.6571]  GPU-MEM:[ 0.000/ 0.000 Gb]    0.66 sec/iter
+Epoch:[  1/  1]  Iter:[ 200/ 391]  Train Accuracy:[  2.04]  Loss:[4.5997]  GPU-MEM:[ 0.000/ 0.000 Gb]    0.72 sec/iter
+Epoch:[  1/  1]  Iter:[ 300/ 391]  Train Accuracy:[  2.50]  Loss:[4.5581]  GPU-MEM:[ 0.000/ 0.000 Gb]    0.93 sec/iter
+Epoch:[  1/  1]  Iter:[ 391/ 391]  Train Accuracy:[  3.03]  Loss:[4.5213]  GPU-MEM:[ 0.000/ 0.000 Gb]    0.90 sec/iter

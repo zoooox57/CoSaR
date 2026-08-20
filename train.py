@@ -1,6 +1,8 @@
 import argparse
 import time
 
+import torch
+import torch.nn.functional as F
 from torch import optim
 
 from common.builder import *
@@ -24,6 +26,7 @@ def parser_args():
     
     # ------------------- Train-related -------------------
     # Model
+    parser.add_argument('--model', type=str, default='cnn', help='model name used for logging')
     parser.add_argument('--init_method', type=str, default='He', help='Xavier or He')
 
     # Noise
@@ -32,6 +35,7 @@ def parser_args():
     parser.add_argument('--noise_ratio', type=float, default=0.4, help='Set the noisy ratio')
 
     # Optim
+    parser.add_argument('--opt', type=str, default='Adam', help='optimizer name')
     parser.add_argument('--weight-decay', type=float, default=1e-5)
 
     # Loss method
@@ -76,19 +80,20 @@ def main(cfg):
     # Get net optim
     net = CNN(n_outputs=cfg.num_classes).to(device)
     net2 = CNN(n_outputs=cfg.num_classes).to(device)
-    init_weights(net, init_method='He')
-    init_weights(net2, init_method='He')
-    optimizer = optim.Adam(net.parameters(), cfg.lr)
-    optimizer2 = optim.Adam(net2.parameters(), cfg.lr)
+    init_weights(net, init_method=cfg.init_method)
+    init_weights(net2, init_method=cfg.init_method)
+    optimizer = optim.Adam(net.parameters(), cfg.lr, weight_decay=cfg.weight_decay)
+    optimizer2 = optim.Adam(net2.parameters(), cfg.lr, weight_decay=cfg.weight_decay)
 
     # Set learing rate
     mom1 = 0.9
     mom2 = 0.1
-    alpha_plan = [cfg.lr] * 200
-    beta1_plan = [mom1] * 200
+    alpha_plan = [cfg.lr] * cfg.epochs
+    beta1_plan = [mom1] * cfg.epochs
 
-    for i in range(80, 200):
-        alpha_plan[i] = float(200 - i) / (200 - 80) * cfg.lr
+    decay_start = 80
+    for i in range(decay_start, cfg.epochs):
+        alpha_plan[i] = float(cfg.epochs - i) / (cfg.epochs - decay_start) * cfg.lr
         beta1_plan[i] = mom2
 
     # Set the dataloader
@@ -108,10 +113,6 @@ def main(cfg):
     epoch_train_time = AverageMeter()
     best_accuracy, last_accuracy, best_epoch = 0.0, 0.0, None
     best_accuracy2, last_accuracy2, best_epoch2 = 0.0, 0.0, None
-    iters_to_accumulate = round(64 / cfg.batch_size) if cfg.batch_size < 64 else 1
-    logger.msg(
-        f'Accumulate gradients every {iters_to_accumulate} iterations --> Acutal batch size is {cfg.batch_size * iters_to_accumulate}')
-
     js_avg = torch.tensor(1.).to(device)
     # ------------------ training -------------------
     for epoch in range(0, cfg.epochs):
@@ -128,14 +129,15 @@ def main(cfg):
         train_loss.reset()
         train_accuracy.reset()
 
-        JSD = torch.zeros(n_train_samples).detach()
+        JSD = torch.zeros(n_train_samples, device=device)
         clean_num = 0
         selection_num = 0
-        s = time.time()
+        jsd_offset = 0
 
         # Train this epoch
         pbar = tqdm(train_loader, ncols=150, ascii=' >', leave=False, desc='training', total=len(train_loader))
         for it, samples in enumerate(pbar):
+            iter_start = time.time()
             curr_lr = [group['lr'] for group in optimizer.param_groups][0]
 
             # Divided data
@@ -148,7 +150,6 @@ def main(cfg):
             net2_prob = net2(in_X_weak).detach()
 
             js_list = get_js_list(prob_weak.softmax(dim=1), target).detach()
-            js_list2 = get_js_list(prob_weak.softmax(dim=1), target).detach()
 
             # get the accuracy of this step
             train_acc = accuracy(prob_weak.softmax(dim=1), target_gt)
@@ -158,8 +159,8 @@ def main(cfg):
             if epoch < cfg.warmup_epochs:
                 pbar.set_description(f'WARMUP TRAINING (lr={curr_lr:.3e})')
                 loss_all = F.cross_entropy(prob_weak, target)
-                now_index = torch.nonzero(JSD == 0)[0]
-                JSD[now_index:(in_X_weak.size(0) + now_index)] = js_list
+                JSD[jsd_offset:(jsd_offset + in_X_weak.size(0))] = js_list
+                jsd_offset += in_X_weak.size(0)
                 clean_list = js_list < js_avg
                 if sum(clean_list) != 0:
                     loss2 = F.cross_entropy(net2(in_X_weak[clean_list]), target[clean_list]) + F.cross_entropy(net2(in_X_strong[clean_list]), target[clean_list])
@@ -169,9 +170,9 @@ def main(cfg):
 
             else:
                 pbar.set_description(f'ROBUST TRAINING (lr={curr_lr:.3e})')
-                loss_all, js_list_cor, clean_list = loss_function(prob_weak, prob_strong, target, js_avg, js_list, js_list2, net2_prob)
-                now_index = torch.nonzero(JSD == 0)[0]
-                JSD[now_index:(in_X_weak.size(0) + now_index)] = js_list_cor
+                loss_all, js_list_cor, clean_list = loss_function(prob_weak, prob_strong, target, js_avg, js_list, net2_prob)
+                JSD[jsd_offset:(jsd_offset + in_X_weak.size(0))] = js_list_cor
+                jsd_offset += in_X_weak.size(0)
                 if sum(clean_list) != 0:
                     clean_samples_weak, clean_sample_strong, clean_target = in_X_weak[clean_list], in_X_strong[clean_list], target[clean_list]
                     prob_weak_2 = net2(clean_samples_weak)
@@ -185,16 +186,16 @@ def main(cfg):
             loss_all.backward()
             optimizer.step()
 
-            selection_num += sum(clean_list)
-            clean_num += sum(target[clean_list] == target_gt[clean_list])
+            selection_num += clean_list.sum().item()
+            clean_num += (target[clean_list] == target_gt[clean_list]).sum().item()
 
-            train_accuracy.update(train_acc[0], cfg.batch_size)
-            train_loss.update(loss_all.item(), cfg.batch_size)
-            epoch_train_time.update(time.time() - s, 1)
+            train_accuracy.update(train_acc[0], in_X_weak.size(0))
+            train_loss.update(loss_all.item(), in_X_weak.size(0))
+            epoch_train_time.update(time.time() - iter_start, 1)
 
             if (cfg.log_freq is not None and (it + 1) % cfg.log_freq == 0) or (it + 1 == len(train_loader)):
-                total_mem = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
-                mem = torch.cuda.memory_reserved() / 2 ** 30
+                total_mem = torch.cuda.get_device_properties(0).total_memory / 2 ** 30 if torch.cuda.is_available() else 0.0
+                mem = torch.cuda.memory_reserved() / 2 ** 30 if torch.cuda.is_available() else 0.0
                 console_content = f"Epoch:[{epoch + 1:>3d}/{cfg.epochs:>3d}]  " \
                                   f"Iter:[{it + 1:>4d}/{len(train_loader):>4d}]  " \
                                   f"Train Accuracy:[{train_accuracy.avg:6.2f}]  " \

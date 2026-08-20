@@ -12,18 +12,18 @@ def build_transform(rescale_size=68, crop_size=64):
         torchvision.transforms.RandomCrop(size=32, padding=4),
         torchvision.transforms.RandomHorizontalFlip(),
         torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        torchvision.transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2470, 0.2435, 0.2616))
     ])
     cifar_test_transform = torchvision.transforms.Compose([
         torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        torchvision.transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2470, 0.2435, 0.2616))
     ])
     cifar_train_transform_strong_aug = torchvision.transforms.Compose([
         torchvision.transforms.RandomCrop(size=32, padding=4),
         torchvision.transforms.RandomHorizontalFlip(),
         CIFAR10Policy(),
         torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        torchvision.transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2470, 0.2435, 0.2616))
     ])
 
     train_transform = torchvision.transforms.Compose([
@@ -77,11 +77,11 @@ def build_dataloader(dataset, cfg):
                                 transform_val=trans['cifar_test'])
 
     elif dataset == 'tinyimagenet':
-        train_set, _ = get_tinyimagenet('tinyimagenet', cfg['noise_type'], cfg['noise_ratio'], train=True,
+        train_set, _ = get_tinyimagenet('tinyimagenet', cfg.noise_type, cfg.noise_ratio, train=True,
                                         transform_train=trans['train'],
                                         transform_train_aug=trans['train_strong'],
                                         transform_val=trans['test'])
-        _, test_set = get_tinyimagenet('tinyimagenet', cfg['noise_type'], cfg['noise_ratio'], train=False,
+        _, test_set = get_tinyimagenet('tinyimagenet', cfg.noise_type, cfg.noise_ratio, train=False,
                                        transform_train=None,
                                        transform_train_aug=None,
                                        transform_val=trans['test'])

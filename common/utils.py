@@ -18,11 +18,11 @@ from collections import Counter
 def init_seeds(seed=0):
     random.seed(seed)
     np.random.seed(seed)
-    # torch.manual_seed(seed)
+    torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     cudnn.deterministic = True
-    cudnn.benchmark = True
+    cudnn.benchmark = False
     torch.cuda.empty_cache()
 
 
@@ -93,7 +93,7 @@ def evaluate(dataloader, model, dev, topk=(1,)):
         for _, sample in enumerate(tqdm(dataloader, ncols=100, ascii=' >', leave=False, desc='evaluating')):
             x = sample[0].to(dev)
             y = sample[2].to(dev)
-            output = model(x)['logits']
+            output = model(x)
             loss = torch.nn.functional.cross_entropy(output, y.long())
             test_loss.update(loss.item(), x.size(0))
             acc = accuracy(output.softmax(dim=1), y, topk)
@@ -190,7 +190,7 @@ def init_weights(module, init_method='Xavier'):
 
 def frozen_layer(module):
     for parameters in module.parameters():
-        parameters.required_grad = False
+        parameters.requires_grad = False
 
 
 # ------------------ Save Tool -------------------
