@@ -82,17 +82,17 @@ def js_div(p, q, base=2):
     return 0.5 * kl_div(p, m, base) + 0.5 * kl_div(q, m, base)
 
 
-def loss_Jo_AR(prob_weak, prob_strong, target, cls_js_avg, cls_js_list, net_prob):
+def loss_Jo_AR(prob_weak, prob_strong, target, cls_js_avg, cls_js_list, cls_js_list2, net_prob):
     with torch.no_grad():
-        onehot_target = F.one_hot(target.long(), prob_weak.size(1)).float()
-        noise_target = (onehot_target + net_prob.softmax(dim=1)) / 2
+        smoothed_target = get_smoothed_label_distribution(target, prob_weak.size(1), 0.1)
+        noise_target = (smoothed_target + net_prob.softmax(dim=1)) / 2
         sharpen_noise_target = (noise_target / 0.1).softmax(dim=1)
         prob_target = torch.argmax(prob_weak.softmax(dim=1), dim=1)
-        similar_target = get_smoothed_label_distribution(target, prob_weak.size(1), 0.1)
+        similar_target = get_smoothed_label_distribution(target, prob_weak.size(1), cls_js_avg)
 
     clean_loss = cross_entropy(prob_weak, target, reduction='none')
     noise_loss = cross_entropy(prob_strong, sharpen_noise_target, reduction='none')
-    ar_loss = -0.5 * cross_entropy(prob_weak, target, reduction='none')
+    ar_loss = contrast_cross_entropy(prob_weak, target, reduction='none')
     similar_loss = cross_entropy(prob_weak, similar_target, reduction='none')
 
     if_clean = cls_js_list < cls_js_avg
@@ -113,9 +113,10 @@ def loss_Jo_AR(prob_weak, prob_strong, target, cls_js_avg, cls_js_list, net_prob
         ar_loss)) / prob_weak.size(0)
     if torch.isnan(loss):
         print(clean_loss, similar_loss, noise_loss, ar_loss)
-    js_list_cor = cls_js_list.clone()
-    js_list_cor[non_consistency_idx] = js_div(prob_strong.softmax(dim=1), sharpen_noise_target)[non_consistency_idx]
-    return loss, js_list_cor, if_clean
+    cls_js_list2[non_consistency_idx] = js_div(prob_strong.softmax(dim=1), sharpen_noise_target)[non_consistency_idx]
+    if not torch.any(if_clean):
+        return loss, cls_js_list2, ~non_consistency_idx
+    return loss, cls_js_list2, if_clean
 
 
 def get_js_list(prob, target, eps=1e-8):

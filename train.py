@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 import time
 
@@ -209,6 +210,7 @@ def main(cfg):
             net2_prob = net2(in_X_weak).detach()
 
             js_list = get_js_list(prob_weak.softmax(dim=1), target).detach()
+            js_list2 = js_list.clone()
 
             # get the accuracy of this step
             train_acc = accuracy(prob_weak.softmax(dim=1), target_gt)
@@ -229,7 +231,8 @@ def main(cfg):
 
             else:
                 pbar.set_description(f'ROBUST TRAINING (lr={curr_lr:.3e})')
-                loss_all, js_list_cor, clean_list = loss_function(prob_weak, prob_strong, target, js_avg, js_list, net2_prob)
+                loss_all, js_list_cor, clean_list = loss_function(
+                    prob_weak, prob_strong, target, js_avg, js_list, js_list2, net2_prob)
                 JSD[jsd_offset:(jsd_offset + in_X_weak.size(0))] = js_list_cor
                 jsd_offset += in_X_weak.size(0)
                 if sum(clean_list) != 0:
@@ -240,6 +243,11 @@ def main(cfg):
                     optimizer2.zero_grad()
                     loss2.backward()
                     optimizer2.step()
+
+            if not torch.isfinite(loss_all):
+                raise FloatingPointError(
+                    f'Non-finite loss at epoch {epoch + 1}, batch {it + 1}: '
+                    f'{loss_all.detach().item()}')
 
             optimizer.zero_grad()
             loss_all.backward()
@@ -274,6 +282,10 @@ def main(cfg):
         eval_result2 = evaluate(valid_loader, net2, device)
         test_accuracy2 = eval_result2['accuracy']
         test_loss2 = eval_result2['loss']
+        if not math.isfinite(test_loss) or not math.isfinite(test_loss2):
+            raise FloatingPointError(
+                f'Non-finite evaluation loss at epoch {epoch + 1}: '
+                f'net1={test_loss}, net2={test_loss2}')
         is_best_net2 = best_epoch2 is None or test_accuracy2 > best_accuracy2
         if is_best_net2:
             best_accuracy2 = test_accuracy2
