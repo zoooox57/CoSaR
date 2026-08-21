@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 import torch
@@ -49,6 +50,7 @@ def parser_args():
     # Epochs
     parser.add_argument('--warmup_epochs', type=int, default=10, help='warmup epochs')
     parser.add_argument('--epochs', type=int, default=200, help='train epochs')
+    parser.add_argument('--resume', type=str, default=None, help='path to a training checkpoint')
 
     args = parser.parse_args()
     config = load_from_cfg(args.config)
@@ -64,6 +66,45 @@ def adjust_learning_rate(optimizer, epoch, al_plan, be_plan):
     for param_group in optimizer.param_groups:
         param_group['lr'] = al_plan[epoch]
         param_group['betas'] = (be_plan[epoch], 0.999)  # Only change beta1
+
+
+def save_training_checkpoint(path, epoch, net, net2, optimizer, optimizer2,
+                             best_accuracy, best_epoch, best_accuracy2, best_epoch2, js_avg):
+    checkpoint = {
+        'epoch': epoch,
+        'net': net.state_dict(),
+        'net2': net2.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'optimizer2': optimizer2.state_dict(),
+        'best_accuracy': best_accuracy,
+        'best_epoch': best_epoch,
+        'best_accuracy2': best_accuracy2,
+        'best_epoch2': best_epoch2,
+        'js_avg': js_avg.detach().cpu(),
+    }
+    temporary_path = path + '.tmp'
+    torch.save(checkpoint, temporary_path)
+    os.replace(temporary_path, path)
+
+
+def load_training_checkpoint(path, device, net, net2, optimizer, optimizer2):
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f'Checkpoint not found: {path}')
+
+    checkpoint = torch.load(path, map_location=device, weights_only=True)
+    net.load_state_dict(checkpoint['net'])
+    net2.load_state_dict(checkpoint['net2'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    optimizer2.load_state_dict(checkpoint['optimizer2'])
+
+    return {
+        'start_epoch': int(checkpoint['epoch']),
+        'best_accuracy': float(checkpoint.get('best_accuracy', 0.0)),
+        'best_epoch': checkpoint.get('best_epoch'),
+        'best_accuracy2': float(checkpoint.get('best_accuracy2', 0.0)),
+        'best_epoch2': checkpoint.get('best_epoch2'),
+        'js_avg': torch.as_tensor(checkpoint.get('js_avg', 1.0), device=device),
+    }
 
 
 def main(cfg):
@@ -114,8 +155,26 @@ def main(cfg):
     best_accuracy, last_accuracy, best_epoch = 0.0, 0.0, None
     best_accuracy2, last_accuracy2, best_epoch2 = 0.0, 0.0, None
     js_avg = torch.tensor(1.).to(device)
+    start_epoch = 0
+
+    resume_path = getattr(cfg, 'resume', None)
+    if resume_path:
+        resume_state = load_training_checkpoint(
+            resume_path, device, net, net2, optimizer, optimizer2)
+        start_epoch = resume_state['start_epoch']
+        best_accuracy = resume_state['best_accuracy']
+        best_epoch = resume_state['best_epoch']
+        best_accuracy2 = resume_state['best_accuracy2']
+        best_epoch2 = resume_state['best_epoch2']
+        js_avg = resume_state['js_avg']
+        logger.msg(f'Resumed checkpoint: {resume_path} (completed epochs: {start_epoch})')
+
+    if start_epoch >= cfg.epochs:
+        logger.msg(f'Checkpoint already completed {start_epoch} epochs; target is {cfg.epochs}.')
+        return
+
     # ------------------ training -------------------
-    for epoch in range(0, cfg.epochs):
+    for epoch in range(start_epoch, cfg.epochs):
         start_time = time.time()
 
         net.train()
@@ -207,14 +266,16 @@ def main(cfg):
         eval_result = evaluate(valid_loader, net, device)
         test_accuracy = eval_result['accuracy']
         test_loss = eval_result['loss']
-        if test_accuracy > best_accuracy:
+        is_best_net1 = best_epoch is None or test_accuracy > best_accuracy
+        if is_best_net1:
             best_accuracy = test_accuracy
             best_epoch = epoch + 1
 
         eval_result2 = evaluate(valid_loader, net2, device)
         test_accuracy2 = eval_result2['accuracy']
         test_loss2 = eval_result2['loss']
-        if test_accuracy2 > best_accuracy2:
+        is_best_net2 = best_epoch2 is None or test_accuracy2 > best_accuracy2
+        if is_best_net2:
             best_accuracy2 = test_accuracy2
             best_epoch2 = epoch + 1
 
@@ -235,7 +296,25 @@ def main(cfg):
                     )
 
         js_avg = get_js_avg(JSD).detach().to(device)
+        latest_checkpoint = os.path.join(result_dir, 'checkpoint_latest.pt')
+        save_training_checkpoint(
+            latest_checkpoint, epoch + 1, net, net2, optimizer, optimizer2,
+            best_accuracy, best_epoch, best_accuracy2, best_epoch2, js_avg)
+        if is_best_net1:
+            best_checkpoint = os.path.join(result_dir, 'checkpoint_best_net1.pt')
+            save_training_checkpoint(
+                best_checkpoint, epoch + 1, net, net2, optimizer, optimizer2,
+                best_accuracy, best_epoch, best_accuracy2, best_epoch2, js_avg)
+            logger.msg(f'Best net1 checkpoint saved: {best_checkpoint}')
+        if is_best_net2:
+            best_checkpoint2 = os.path.join(result_dir, 'checkpoint_best_net2.pt')
+            save_training_checkpoint(
+                best_checkpoint2, epoch + 1, net, net2, optimizer, optimizer2,
+                best_accuracy, best_epoch, best_accuracy2, best_epoch2, js_avg)
+            logger.msg(f'Best net2 checkpoint saved: {best_checkpoint2}')
         print(js_avg, min(JSD))
+
+    logger.msg(f'Latest checkpoint saved: {latest_checkpoint}')
 
 
 if __name__ == '__main__':

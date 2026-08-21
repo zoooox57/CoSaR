@@ -5,3 +5,4 @@ dataset/cifar10d/
 dataset/cifar100d/
 dataset/svhn/
 tinyimagenet/
+Results/
